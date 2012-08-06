@@ -1,3 +1,11 @@
+#!usr/bin/env node
+
+/*
+	Author: Arjun Variar
+	Dependencies: npm install ntwitter
+	Caution: Work In Progress
+*/
+
 var twitter = require('ntwitter');
 
 var twit = new twitter({
