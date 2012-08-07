@@ -6,7 +6,8 @@
 	Caution: Work In Progress
 */
 
-var twitter = require('ntwitter');
+var twitter = require('ntwitter'),
+		geocoder = require('geocoder');
 
 var twit = new twitter({
   consumer_key: '3OM51waVLgJF9jgq6NwVVw',
@@ -15,10 +16,13 @@ var twit = new twitter({
   access_token_secret: '5AcQ2eOCBvHm4vDxha6bUDohhsNu9ofpnvKrS9F0'
 });
 
-twit.stream('statuses/sample', function(stream) {
-  stream.on('data', function (data) {
-  	if ((/^.*(Olympics|India).*$/gi).test(data.text)) {
-    	console.log(data.user.name + "@"+data.user.url+" said \"" + data.text + "\"");
-    }
-  });
+geocoder.geocode('Bangalore, India',function(err, data) {
+	var results = data.results[0];
+	var swt = results.geometry.viewport.southwest , nst = results.geometry.viewport.northeast;
+	var location = [swt.lng,swt.lat,nst.lng,nst.lat].join(',');
+	twit.stream('statuses/filter', { 'locations' : location },function(stream) {
+	  stream.on('data', function (data) {
+	    	console.log(data.user.name + "@" + data.user.url + " said \"" + data.text + "\"");
+	  });
+	});
 });
