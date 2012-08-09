@@ -2,7 +2,7 @@
 
 /*
 	Author: Arjun Variar
-	Dependencies: npm install ntwitter geocoder natural wordpos.
+	Dependencies: npm install ntwitter geocoder natural wordpos restler.
 	Caution: Work In Progress
 	Currently I am checking the average tweet for various configurable filters :D (Check below for list of parameters on which you may want to filter on.)
 	TODO:
@@ -13,7 +13,8 @@
 var twitter = require('ntwitter'),
 		geocoder = require('geocoder'),
 		natural = require('natural'),
-		WordPOS = require('wordpos');
+		WordPOS = require('wordpos'),
+		rest    = require('restler');
 
 var twit = new twitter({
   consumer_key: '3OM51waVLgJF9jgq6NwVVw',
@@ -25,10 +26,19 @@ var twit = new twitter({
 var config = {
 		region: 'USA',
 		printInterval: 30000,
-		filter: 'data.user.followers_count >= 0'
+		filter: 'true'
 };
 
-var classifier = new natural.LogisticRegressionClassifier(),wordpos = new WordPOS(),nouns = [];
+Y = rest.service(function() {
+	}, {
+	  baseURL: 'http://search.yahooapis.com'
+	}, {
+	  extract: function(message) {
+	    return this.post('ContentAnalysisService/V1/termExtraction', { data: { appid: 'b9blaUfV34FwMZsV18h7FRohGQAukT6LespTaEgIWKjAL34uStZ1A2R1ueSjGzQMvQxemUaBsI29gwv0kbGSArE3A7qAXtY-',context: message , output : 'json'} });
+	  }
+});
+
+var classifier = new natural.LogisticRegressionClassifier(),wordpos = new WordPOS(),nouns = [],client = new Y();
 
 geocoder.geocode(config.region,function(err, data) {
 	if (err) {
@@ -40,18 +50,18 @@ geocoder.geocode(config.region,function(err, data) {
 	var location = [swt.lng,swt.lat,nst.lng,nst.lat].join(',');
 	var TimeArray = [],lasttime = Date.now(),currenttime, time;
 	setInterval(function() {
-		// time = (TimeArray.reduce(function(a,b) { return a + b },0) / TimeArray.length).toFixed(2);
+		time = (TimeArray.reduce(function(a,b) { return a + b },0) / TimeArray.length).toFixed(2);
 		displayTopNumbers();
-	  // if (!isNaN(time)) console.log( "########################################### The Average time between the tweets is " + time + " secs.");
+		if (!isNaN(time)) console.log( "########################################### The Average time between the tweets is " + time + " secs.");
 	}, config.printInterval);
 	twit.stream('statuses/filter', { 'locations' : location },function(stream) {
 	  stream.on('data', function (data) {
-	  // 	if (eval(config.filter)) {
-			// 	currenttime = Date.now(data.created_at),diff = (currenttime - lasttime)/1000,lasttime = currenttime;
-			// 	TimeArray.push(diff);
-			// 	showSummary(data);
-			// }
-			Nounify(data);
+	  	if (eval(config.filter)) {
+				currenttime = Date.now(data.created_at),diff = (currenttime - lasttime)/1000,lasttime = currenttime;
+				TimeArray.push(diff);
+				// showSummary(data);
+			}
+			YahooExtract(data);
 	  });
 	});
 });
@@ -69,17 +79,19 @@ function classifyHashTags(data) {
 }
 
 function Nounify(data) {
-		wordpos.getNouns(data.text,function(result) {
-				result.forEach(function(r) {
-						var noun = nouns.filter(function(obj) {
-							return obj.key == r;
-						})[0];
-						if (noun)
-							noun.count++;
-						else
-							nouns.push({key:r,count:1});
-				});
-		})
+		wordpos.getNouns(data.text,AddWordsToArray);
+}
+
+function AddWordsToArray(result) {
+	result.forEach(function(r) {
+			var noun = nouns.filter(function(obj) {
+				return obj.key == r;
+			})[0];
+			if (noun)
+				noun.count++;
+			else
+				nouns.push({key:r,count:1});
+	});
 }
 
 function displayTopNumbers(number) {
@@ -87,10 +99,18 @@ function displayTopNumbers(number) {
 		var temp = nouns.sort(function(a,b) { return b.count - a.count}).filter(function(obj) {return obj.key.length >= 3});
 		if (temp.length >= 10) {
 			for (var i = 0;i <=10 ;++i) {
-				console.log("The Noun at position "+i+" is \""+temp[i].key + "\" with the count "+temp[i].count);
+				console.log("Trending Topic "+i+" is \""+temp[i].key + "\" with the count "+temp[i].count);
 			};
 				console.log("-------------------------##############################------------------------------");
 		}
+}
+
+function YahooExtract(data) {
+	client.extract(data.text).on('error',function(err) {
+			console.error(err);
+	}).on('success',function(result) {
+			AddWordsToArray(JSON.parse(result)["ResultSet"]["Result"]);
+	});
 }
 
 
