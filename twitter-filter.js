@@ -2,13 +2,18 @@
 
 /*
 	Author: Arjun Variar
-	Dependencies: npm install ntwitter geocoder
+	Dependencies: npm install ntwitter geocoder natural wordpos.
 	Caution: Work In Progress
 	Currently I am checking the average tweet for various configurable filters :D (Check below for list of parameters on which you may want to filter on.)
+	TODO:
+		1) http://css.dzone.com/articles/using-natural-nlp-module: Add the classification API to the bot. And train it using the tweets which have hash-tags in them for the first 100 or 1000 
+			 & then predict hashtags later on; keep improving the classification.
 */
 
 var twitter = require('ntwitter'),
-		geocoder = require('geocoder');
+		geocoder = require('geocoder'),
+		natural = require('natural'),
+		WordPOS = require('wordpos');
 
 var twit = new twitter({
   consumer_key: '3OM51waVLgJF9jgq6NwVVw',
@@ -18,32 +23,75 @@ var twit = new twitter({
 });
 
 var config = {
-		region: 'New York,USA',
+		region: 'USA',
 		printInterval: 30000,
-		filter: 'data.user.followers_count > 100'
+		filter: 'data.user.followers_count >= 0'
 };
 
+var classifier = new natural.LogisticRegressionClassifier(),wordpos = new WordPOS(),nouns = [];
+
 geocoder.geocode(config.region,function(err, data) {
+	if (err) {
+		console.log(err);
+		process.exit(0);
+	}
 	var results = data.results[0];
 	var swt = results.geometry.viewport.southwest , nst = results.geometry.viewport.northeast;
 	var location = [swt.lng,swt.lat,nst.lng,nst.lat].join(',');
 	var TimeArray = [],lasttime = Date.now(),currenttime, time;
 	setInterval(function() {
-		time = (TimeArray.reduce(function(a,b) { return a + b },0) / TimeArray.length).toFixed(2);
-	  if (!isNaN(time)) console.log( "########################################### The Average time between the tweets is " + time + " secs.");
+		// time = (TimeArray.reduce(function(a,b) { return a + b },0) / TimeArray.length).toFixed(2);
+		displayTopNumbers();
+	  // if (!isNaN(time)) console.log( "########################################### The Average time between the tweets is " + time + " secs.");
 	}, config.printInterval);
 	twit.stream('statuses/filter', { 'locations' : location },function(stream) {
 	  stream.on('data', function (data) {
-	  	if (eval(config.filter)) {
-				currenttime = Date.now(data.created_at),diff = (currenttime - lasttime)/1000,lasttime = currenttime;
-				TimeArray.push(diff);
-				var url = data.user.url ? "@" + data.user.url : '';
-				console.log(data.created_at + "::" + data.user.name + url + " said \"" + data.text + "\"");
-			}
+	  // 	if (eval(config.filter)) {
+			// 	currenttime = Date.now(data.created_at),diff = (currenttime - lasttime)/1000,lasttime = currenttime;
+			// 	TimeArray.push(diff);
+			// 	showSummary(data);
+			// }
+			Nounify(data);
 	  });
 	});
 });
 
+function showSummary(data) {
+	var url = data.user.url ? "@" + data.user.url : '';
+	console.log(data.created_at + "::" + data.user.name + url + " said \"" + data.text + "\"");
+}
+
+function classifyHashTags(data) {
+		data.entities.hashtags.forEach(function(hash) {
+			classifier.addDocument(data.text,hash);
+			classifier.train();
+		});
+}
+
+function Nounify(data) {
+		wordpos.getNouns(data.text,function(result) {
+				result.forEach(function(r) {
+						var noun = nouns.filter(function(obj) {
+							return obj.key == r;
+						})[0];
+						if (noun)
+							noun.count++;
+						else
+							nouns.push({key:r,count:1});
+				});
+		})
+}
+
+function displayTopNumbers(number) {
+		number = number || 10;
+		var temp = nouns.sort(function(a,b) { return b.count - a.count}).filter(function(obj) {return obj.key.length >= 3});
+		if (temp.length >= 10) {
+			for (var i = 0;i <=10 ;++i) {
+				console.log("The Noun at position "+i+" is \""+temp[i].key + "\" with the count "+temp[i].count);
+			};
+				console.log("-------------------------##############################------------------------------");
+		}
+}
 
 
 
