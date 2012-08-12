@@ -27,7 +27,7 @@ var twit = new twitter({
 });
 
 var config = {
-	region: 'World',
+	region: 'India',
 	printInterval: 30000,
 	filter: 'true',
 	topTopicsToPrint: 10,
@@ -69,7 +69,7 @@ geocoder.geocode(config.region,function(err, data) {
 	}
 	var results = data.results[0];
 	var swt = results.geometry.viewport.southwest , nst = results.geometry.viewport.northeast;
-	var location = config.region == 'World' ? "-180,-90,180,90" : [swt.lng,swt.lat,nst.lng,nst.lat].join(',');
+	var location = [swt.lng,swt.lat,nst.lng,nst.lat].join(',');
 	var TimeArray = [],lasttime = Date.now(),currenttime, time;
 	setInterval(function() {
 		time = (TimeArray.reduce(function(a,b) { return a + b },0) / TimeArray.length).toFixed(2);
