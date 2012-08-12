@@ -2,19 +2,22 @@
 
 /*
 	Author: Arjun Variar
-	Dependencies: npm install ntwitter geocoder natural wordpos restler.
+	Dependencies: npm install ntwitter geocoder natural wordpos restler glossary.
 	Caution: Work In Progress
 	Currently I am checking the average tweet for various configurable filters :D (Check below for list of parameters on which you may want to filter on.)
 	TODO:
 		1) http://css.dzone.com/articles/using-natural-nlp-module: Add the classification API to the bot. And train it using the tweets which have hash-tags in them for the first 100 or 1000 
 			 & then predict hashtags later on; keep improving the classification.
+
+    Plugins used for extracting important terms:
+    Wordpos for using Nouns as important terms. (https://github.com/moos/wordpos)
+    Yahoo term extraction API. (http://developer.yahoo.com/search/content/V1/termExtraction.html 5000 request limit)
+    Glossary server-side API. (https://github.com/harthur/glossary)
 */
 
 var twitter = require('ntwitter'),
 		geocoder = require('geocoder'),
-		natural = require('natural'),
-		WordPOS = require('wordpos'),
-		rest    = require('restler');
+		natural = require('natural');
 
 var twit = new twitter({
   consumer_key: '3OM51waVLgJF9jgq6NwVVw',
@@ -24,22 +27,41 @@ var twit = new twitter({
 });
 
 var config = {
-		region: 'USA',
-		printInterval: 30000,
-		filter: 'true'
-};
+	region: 'India',
+	printInterval: 30000,
+	filter: 'true',
+	topTopicsToPrint: 10,
+    plugin: 'Sentiment' // plugins currently supported are (Glossary,Yahoo,Wordpos,Hashtag,Sentiment for sentiment analysis)
+},FunctionExecuter,important_words_array = [],classifier,PrintExecuter = displayTopNumbers;
 
-Y = rest.service(function() {
-	}, {
-	  baseURL: 'http://search.yahooapis.com'
-	}, {
-	  extract: function(message) {
-	    return this.post('ContentAnalysisService/V1/termExtraction', { data: { appid: 'b9blaUfV34FwMZsV18h7FRohGQAukT6LespTaEgIWKjAL34uStZ1A2R1ueSjGzQMvQxemUaBsI29gwv0kbGSArE3A7qAXtY-',context: message , output : 'json'} });
-	  }
-});
+if (config.plugin == 'Glossary') {
+    var glossary = require("glossary")({ collapse: true , blacklist: ["I" , "I'm" , "We" , "Me" , "&amp" , "http"]});
+    FunctionExecuter = GlossaryExtract;
+} else if (config.plugin == 'Yahoo') {
+    var rest = require('restler');
+    var Y = rest.service(function() {
+        }, {
+          baseURL: 'http://search.yahooapis.com'
+        }, {
+          extract: function(message) {
+            return this.post('ContentAnalysisService/V1/termExtraction', { data: { appid: 'b9blaUfV34FwMZsV18h7FRohGQAukT6LespTaEgIWKjAL34uStZ1A2R1ueSjGzQMvQxemUaBsI29gwv0kbGSArE3A7qAXtY-',context: message , output : 'json'} });
+          }
+    });
+    var client = new Y();
+    FunctionExecuter =  YahooExtract;
+} else if (config.plugin == 'Wordpos') {
+    var WordPOS = require('wordpos');
+    var wordpos = new WordPOS();
+    FunctionExecuter = WordposExtract;
+} else if (config.plugin == 'Hashtag') {
+    FunctionExecuter = HashtagExtract;
+} else if (config.plugin == 'Sentiment') {
+    loadClassifier();
+    FunctionExecuter = CheckSentiment;
+    PrintExecuter = sentimentCount;
+}
 
-var classifier = new natural.LogisticRegressionClassifier(),wordpos = new WordPOS(),nouns = [],client = new Y();
-
+console.log('Data will be populated every ' + (config.printInterval)/1000 + ' secs.')
 geocoder.geocode(config.region,function(err, data) {
 	if (err) {
 		console.log(err);
@@ -51,7 +73,7 @@ geocoder.geocode(config.region,function(err, data) {
 	var TimeArray = [],lasttime = Date.now(),currenttime, time;
 	setInterval(function() {
 		time = (TimeArray.reduce(function(a,b) { return a + b },0) / TimeArray.length).toFixed(2);
-		displayTopNumbers();
+		PrintExecuter(config.topTopicsToPrint);
 		if (!isNaN(time)) console.log( "########################################### The Average time between the tweets is " + time + " secs.");
 	}, config.printInterval);
 	twit.stream('statuses/filter', { 'locations' : location },function(stream) {
@@ -61,7 +83,7 @@ geocoder.geocode(config.region,function(err, data) {
 				TimeArray.push(diff);
 				// showSummary(data);
 			}
-			YahooExtract(data);
+			FunctionExecuter(data);
 	  });
 	});
 });
@@ -72,37 +94,38 @@ function showSummary(data) {
 }
 
 function classifyHashTags(data) {
-		data.entities.hashtags.forEach(function(hash) {
-			classifier.addDocument(data.text,hash);
-			classifier.train();
-		});
-}
-
-function Nounify(data) {
-		wordpos.getNouns(data.text,AddWordsToArray);
+	data.entities.hashtags.forEach(function(hash) {
+		classifier.addDocument(data.text,hash);
+		classifier.train();
+	});
 }
 
 function AddWordsToArray(result) {
 	result.forEach(function(r) {
-			var noun = nouns.filter(function(obj) {
-				return obj.key == r;
-			})[0];
-			if (noun)
-				noun.count++;
-			else
-				nouns.push({key:r,count:1});
+		var important_word = important_words_array.filter(function(obj) {
+			return obj.key == r;
+		})[0];
+		if (important_word)
+			important_word.count++;
+		else
+			important_words_array.push({key:r,count:1});
 	});
 }
 
 function displayTopNumbers(number) {
-		number = number || 10;
-		var temp = nouns.sort(function(a,b) { return b.count - a.count}).filter(function(obj) {return obj.key.length >= 3});
-		if (temp.length >= 10) {
-			for (var i = 0;i <=10 ;++i) {
-				console.log("Trending Topic "+i+" is \""+temp[i].key + "\" with the count "+temp[i].count);
-			};
-				console.log("-------------------------##############################------------------------------");
-		}
+	var temp = important_words_array.sort(function(a,b) { return b.count - a.count}).filter(function(obj) {return obj.key.length >= 3});
+    if (temp.length < number) number = temp.length - 1;
+	for (var i = 0;i <= number ;++i) {
+		console.log("Trending Topic "+i+" is \""+temp[i].key + "\" with the count "+temp[i].count);
+	};
+	console.log("-------------------------##############################------------------------------");
+}
+
+function sentimentCount() {
+    var pos = important_words_array.filter(function(obj) {return obj.key == 'pos'})[0].count ;
+    var neg = important_words_array.filter(function(obj) {return obj.key == 'neg'})[0].count ;
+    var percentage = ((pos * 100) / (pos + neg)).toFixed(2);
+    console.log('The % of Positive Tweets are ' + percentage);
 }
 
 function YahooExtract(data) {
@@ -113,6 +136,30 @@ function YahooExtract(data) {
 	});
 }
 
+function GlossaryExtract(data) {
+    var keywords = glossary.extract(data.text);
+    AddWordsToArray(keywords);
+}
+
+function WordposExtract(data) {
+    wordpos.getNouns(data.text,AddWordsToArray);
+}
+
+function HashtagExtract(data) {
+    AddWordsToArray(data.entities.hashtags.map(function(obj){return obj.text}));
+}
+
+function CheckSentiment(data) {
+    AddWordsToArray([classifier.classify(data.text)]);
+}
+
+function loadClassifier() {
+    natural.BayesClassifier.load('token_classifier.json', null, function(err, result) {
+        if (err) throw err;
+        classifier = result;
+        console.log('Classifier Loaded.');
+    });
+}
 
 
 
