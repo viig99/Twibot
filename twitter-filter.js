@@ -8,6 +8,8 @@
 	TODO:
 		1) http://css.dzone.com/articles/using-natural-nlp-module: Add the classification API to the bot. And train it using the tweets which have hash-tags in them for the first 100 or 1000 
 			 & then predict hashtags later on; keep improving the classification.
+        2) Use https://github.com/FGRibreau/node-language-detect or 
+            https://github.com/athoune/node-ngram for language detection in english. (Read only english tweets.)
 
     Plugins used for extracting important terms:
     Wordpos for using Nouns as important terms. (https://github.com/moos/wordpos)
@@ -56,9 +58,11 @@ if (config.plugin == 'Glossary') {
 } else if (config.plugin == 'Hashtag') {
     FunctionExecuter = HashtagExtract;
 } else if (config.plugin == 'Sentiment') {
+    var WordPOS = require('wordpos');
+    var wordpos = new WordPOS();
     loadClassifier();
-    FunctionExecuter = CheckSentiment;
-    PrintExecuter = sentimentCount;
+    FunctionExecuter = AddCountryPosNegToArray;
+    PrintExecuter = displayTopHappyCountries;
 }
 
 console.log('Data will be populated every ' + (config.printInterval)/1000 + ' secs.')
@@ -112,6 +116,25 @@ function AddWordsToArray(result) {
 	});
 }
 
+function AddCountryPosNegToArray(data) {
+    if (wordpos.parse(data.text).length > 0) {    // Check if language is english - (practically useless), please change it to n-gram or language-detect.
+        var type = classifier.classify(data.text);
+        if (data.place && data.place.country) {
+            var country_code = data.place.country_code,country = data.place.country;
+            var temp = important_words_array.filter(function(obj) {return obj.country_code == country_code});
+            if (temp.length > 0) {
+                temp[0][type] = temp[0][type] ? temp[0][type]+1 : 1;
+            } else {
+                var newobj = {};
+                newobj[type] = 1;
+                newobj["country"] = country;
+                newobj["country_code"] = country_code;
+                important_words_array.push(newobj);
+            }
+        }
+    }
+}
+
 function displayTopNumbers(number) {
 	var temp = important_words_array.sort(function(a,b) { return b.count - a.count}).filter(function(obj) {return obj.key.length >= 3});
     if (temp.length < number) number = temp.length - 1;
@@ -126,6 +149,15 @@ function sentimentCount() {
     var neg = important_words_array.filter(function(obj) {return obj.key == 'neg'})[0].count ;
     var percentage = ((pos * 100) / (pos + neg)).toFixed(2);
     console.log('The % of Positive Tweets are ' + percentage);
+}
+
+function displayTopHappyCountries(number) {
+    var temp = important_words_array.filter(function(obj) {return obj.pos && obj.neg && (obj.pos + obj.neg) >= 10}).sort(function(a,b) { return (b.pos/(b.pos+b.neg)) - (a.pos/(a.pos+a.neg))});
+    if (temp.length < number) number = temp.length - 1;
+    for (var i = 0;i <= number ;++i) {
+        console.log("Country with happines rating "+i+" is \"" +temp[i].country + "\" with happiness percentage "+ (temp[i].pos*100/(temp[i].pos+temp[i].neg)).toFixed(2));
+    };
+    console.log("-------------------------##############################------------------------------");    
 }
 
 function YahooExtract(data) {
@@ -147,10 +179,6 @@ function WordposExtract(data) {
 
 function HashtagExtract(data) {
     AddWordsToArray(data.entities.hashtags.map(function(obj){return obj.text}));
-}
-
-function CheckSentiment(data) {
-    AddWordsToArray([classifier.classify(data.text)]);
 }
 
 function loadClassifier() {
