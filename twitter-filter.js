@@ -2,14 +2,14 @@
 
 /*
 	Author: Arjun Variar
-	Dependencies: npm install ntwitter geocoder natural wordpos restler glossary.
+	Dependencies: npm install ntwitter geocoder natural wordpos restler glossary languagedetect.
 	Caution: Work In Progress
 	Currently I am checking the average tweet for various configurable filters :D (Check below for list of parameters on which you may want to filter on.)
 	TODO:
 		1) http://css.dzone.com/articles/using-natural-nlp-module: Add the classification API to the bot. And train it using the tweets which have hash-tags in them for the first 100 or 1000 
-			 & then predict hashtags later on; keep improving the classification.
+			 & then predict hashtags later on; keep improving the classification. DONE
         2) Use https://github.com/FGRibreau/node-language-detect or 
-            https://github.com/athoune/node-ngram for language detection in english. (Read only english tweets.)
+            https://github.com/athoune/node-ngram for language detection in english. (Read only english tweets.) DONE
 
     Plugins used for extracting important terms:
     Wordpos for using Nouns as important terms. (https://github.com/moos/wordpos)
@@ -58,8 +58,8 @@ if (config.plugin == 'Glossary') {
 } else if (config.plugin == 'Hashtag') {
     FunctionExecuter = HashtagExtract;
 } else if (config.plugin == 'Sentiment') {
-    var WordPOS = require('wordpos');
-    var wordpos = new WordPOS();
+    var LanguageDetect = require('languagedetect');
+    var lngDetector = new LanguageDetect();
     loadClassifier();
     FunctionExecuter = AddCountryPosNegToArray;
     PrintExecuter = displayTopHappyCountries;
@@ -117,7 +117,7 @@ function AddWordsToArray(result) {
 }
 
 function AddCountryPosNegToArray(data) {
-    if (wordpos.parse(data.text).length > 0) {    // Check if language is english - (practically useless), please change it to n-gram or language-detect.
+    if (lngDetector.detect(data.text, 1)[0] && lngDetector.detect(data.text, 1)[0][0] == 'english') {    // Check if language is english.
         var type = classifier.classify(data.text);
         if (data.place && data.place.country) {
             var country_code = data.place.country_code,country = data.place.country;
